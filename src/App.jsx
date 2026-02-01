@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Download, Upload, Type, ZoomIn, ZoomOut, RotateCcw, 
   Plus, Trash2, AlignCenter, Undo, Redo, LayoutTemplate,
-  FileImage, Square, RectangleHorizontal
+  FileImage, Square, RectangleHorizontal, Share2, CheckCircle
 } from 'lucide-react';
 
 const FONTS = [
@@ -19,7 +19,7 @@ const TEMPLATES = [
     icon: RectangleHorizontal, 
     width: 3508, 
     height: 2480, 
-    bgUrl: './a4.png',
+    bgUrl: '/a4.png',
     desc: 'للملصقات الكبيرة',
     layout: {
       t1: { x: 1600, y: 1350, size: 190, color: '#333333', align: 'center', stroke: false },
@@ -33,7 +33,7 @@ const TEMPLATES = [
     icon: RectangleHorizontal, 
     width: 2480, 
     height: 1748, 
-    bgUrl: './a5.png',
+    bgUrl: '/a5.png',
     desc: 'للملصقات المتوسطة',
     layout: {
       t1: { x: 1100, y: 950, size: 140, color: '#333333', align: 'center', stroke: false },
@@ -47,7 +47,7 @@ const TEMPLATES = [
     icon: Square, 
     width: 1772, 
     height: 591, 
-    bgUrl: './shelf.png',
+    bgUrl: '/shelf.png',
     desc: '15سم × 5سم',
     layout: {
       t1: { x: 800, y: 320, size: 100, color: '#333333', align: 'center', stroke: false },
@@ -89,6 +89,8 @@ const App = () => {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [pinchInitialDist, setPinchInitialDist] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -99,7 +101,6 @@ const App = () => {
     link.href = 'https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Cairo:wght@400;700;900&family=Tajawal:wght@400;700;800&display=swap';
     link.rel = 'stylesheet';
     document.head.appendChild(link);
-    
     setTimeout(fitToScreen, 100);
     window.addEventListener('resize', fitToScreen);
     return () => window.removeEventListener('resize', fitToScreen);
@@ -108,9 +109,7 @@ const App = () => {
   useEffect(() => {
     if (selectedId && elementsRefs.current[selectedId]) {
       elementsRefs.current[selectedId].scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'center',
-        inline: 'nearest'
+        behavior: 'smooth', block: 'center', inline: 'nearest'
       });
     }
   }, [selectedId]);
@@ -118,6 +117,13 @@ const App = () => {
   useEffect(() => {
     drawCanvas();
   }, [config, bgImageObj, selectedId]);
+
+  useEffect(() => {
+    if (showToast) {
+      const timer = setTimeout(() => setShowToast(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showToast]);
 
   const fitToScreen = () => {
     if (!containerRef.current) return;
@@ -152,7 +158,10 @@ const App = () => {
       ctx.fillStyle = '#9ca3af';
       ctx.font = 'bold 60px Cairo';
       ctx.textAlign = 'center';
-      ctx.fillText('جاري تحميل القالب...', config.width/2, config.height/2);
+      ctx.fillText('يرجى رفع صورة التصميم هنا', config.width/2, config.height/2);
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.lineWidth = 10;
+      ctx.strokeRect(0, 0, config.width, config.height);
     }
 
     config.elements.forEach(el => {
@@ -280,6 +289,7 @@ const App = () => {
     } else {
         if (template.bgUrl) {
             const img = new Image();
+            img.crossOrigin = "anonymous";
             img.src = template.bgUrl;
             img.onload = () => {
                 setBgImageObj(img);
@@ -292,11 +302,50 @@ const App = () => {
                 }
                 setTimeout(fitToScreen, 50);
             };
-            img.onerror = () => {
-               // Ignore error silently
-            };
         }
     }
+  };
+
+  const handleDownload = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setIsSaving(true);
+    
+    drawCanvas(true);
+
+    canvas.toBlob(async (blob) => {
+        if (!blob) {
+            setIsSaving(false);
+            return;
+        }
+
+        const file = new File([blob], "offer.png", { type: "image/png" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({
+                    files: [file],
+                    title: 'ملصق العرض',
+                    text: 'تم التصميم بواسطة صانع الملصقات'
+                });
+                setShowToast(true);
+            } catch (error) {
+                console.log("Share cancelled or failed", error);
+            }
+        } else {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `offer-${Date.now()}.png`;
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setShowToast(true);
+        }
+
+        setIsSaving(false);
+        setTimeout(() => drawCanvas(false), 200); 
+    }, 'image/png');
   };
 
   const getCanvasCoordinates = (clientX, clientY) => {
@@ -464,22 +513,6 @@ const App = () => {
     }
   };
 
-  const handleDownload = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    drawCanvas(true);
-    canvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.download = `price-tag-${activeTemplate}-${Date.now()}.png`;
-        link.href = url;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => drawCanvas(false), 200); 
-    }, 'image/png');
-  };
-
   const ControlBtn = ({ onClick, icon: Icon, disabled = false, className = "", title="" }) => (
     <button 
         onClick={onClick} 
@@ -493,6 +526,15 @@ const App = () => {
 
   return (
     <div className="flex flex-col h-screen w-full bg-gray-50 overflow-hidden text-gray-800 font-sans" dir="rtl">
+      
+      {/* Toast Notification */}
+      <div 
+        className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-green-600 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 transition-all duration-300 ${showToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-10 pointer-events-none'}`}
+      >
+        <CheckCircle size={20} className="text-white" />
+        <span className="font-bold text-sm">تم حفظ الصورة بنجاح!</span>
+      </div>
+
       <div className="h-[45vh] min-h-[350px] w-full bg-gray-900 shrink-0 relative flex flex-col items-center justify-center border-b-4 border-indigo-600 z-10 shadow-xl">
          <div className="absolute top-4 left-4 z-20 flex flex-col gap-4">
             <div className="flex flex-col gap-2 bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20 shadow-xl">
@@ -704,8 +746,19 @@ const App = () => {
       </div>
 
       <div className="bg-white border-t border-gray-200 p-4 absolute bottom-0 w-full shadow-lg z-50">
-          <button onClick={handleDownload} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold text-lg shadow flex justify-center gap-2 active:scale-95 transition">
-              <Download size={22} /> حفظ الصورة
+          <button 
+            onClick={handleDownload} 
+            disabled={isSaving}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold text-lg shadow flex justify-center gap-2 active:scale-95 transition"
+          >
+              {isSaving ? (
+                <span>جاري المعالجة...</span>
+              ) : (
+                <>
+                  <Share2 size={22} />
+                  <span>مشاركة / حفظ الصورة</span>
+                </>
+              )}
           </button>
       </div>
 
